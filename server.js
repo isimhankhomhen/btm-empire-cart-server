@@ -28,10 +28,35 @@ const BREVO_API_KEY = 'xkeysib-7b7c235ea5053f910943b776c68c24497f9072da923fa6239
 const SENDER_EMAIL = 'btmempirestore@gmail.com';
 const SENDER_NAME = 'BTM Empire Store';
 const STORE_URL = 'https://btmempire.free.nf';
+const BREVO_LIST_ID = 3;
 
 function genCartId() {
   return Math.random().toString(36).substring(2,8).toUpperCase() +
          Date.now().toString(36).toUpperCase().slice(-4);
+}
+
+// Save customer email + phone to Brevo contacts
+async function saveContactToBrevo(email, phone, name) {
+  try {
+    await axios.post('https://api.brevo.com/v3/contacts', {
+      email,
+      attributes: {
+        FIRSTNAME: name || '',
+        SMS: phone || '',
+        PHONE: phone || ''
+      },
+      listIds: [BREVO_LIST_ID],
+      updateEnabled: true
+    }, {
+      headers: {
+        'api-key': BREVO_API_KEY,
+        'Content-Type': 'application/json'
+      }
+    });
+    console.log('Contact saved to Brevo:', email, phone);
+  } catch (e) {
+    console.error('Brevo contact error:', e.response?.data || e.message);
+  }
 }
 
 async function sendEmail(to, subject, htmlContent) {
@@ -147,18 +172,34 @@ app.get('/', (req, res) => res.json({ status: 'ok', message: 'BTM Empire Cart Se
 
 app.post('/api/cart/save', async (req, res) => {
   try {
-    const { email, items, cart_total, cart_id } = req.body;
+    const { email, items, cart_total, cart_id, phone, name } = req.body;
     if (!email || !items?.length) return res.status(400).json({ error: 'Missing email or items' });
     const id = cart_id || genCartId();
+
     await db.collection('abandoned_carts').doc(id).set({
-      cart_id: id, customer_email: email, items,
-      cart_total: cart_total || 0, abandoned_time: Date.now(),
-      recovered: false, email_30min_sent: false,
-      email_12hr_sent: false, email_24hr_sent: false,
+      cart_id: id,
+      customer_email: email,
+      customer_name: name || '',
+      customer_phone: phone || '',
+      items,
+      cart_total: cart_total || 0,
+      abandoned_time: Date.now(),
+      recovered: false,
+      email_30min_sent: false,
+      email_12hr_sent: false,
+      email_24hr_sent: false,
       updated_at: admin.firestore.FieldValue.serverTimestamp()
     }, { merge: true });
+
+    // Save email + phone to Brevo contacts automatically
+    saveContactToBrevo(email, phone || '', name || '');
+
+    console.log(`Cart saved: ${id} for ${email}`);
     res.json({ success: true, cart_id: id });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.post('/api/cart/recover', async (req, res) => {
@@ -176,7 +217,9 @@ app.post('/api/cart/recover', async (req, res) => {
     }
     if (ref) await ref.update({ recovered: true, recovered_at: admin.firestore.FieldValue.serverTimestamp() });
     res.json({ success: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.get('/api/cart/:cart_id', async (req, res) => {
@@ -184,7 +227,9 @@ app.get('/api/cart/:cart_id', async (req, res) => {
     const doc = await db.collection('abandoned_carts').doc(req.params.cart_id).get();
     if (!doc.exists) return res.status(404).json({ error: 'Cart not found' });
     res.json({ success: true, cart: doc.data() });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.get('/api/admin/dashboard', async (req, res) => {
@@ -196,7 +241,9 @@ app.get('/api/admin/dashboard', async (req, res) => {
     const revenue = carts.filter(c => c.recovered).reduce((a, c) => a + (c.cart_total || 0), 0);
     const rate = total > 0 ? ((recovered / total) * 100).toFixed(1) : 0;
     res.json({ total_abandoned: total, recovered, revenue: revenue.toFixed(2), conversion_rate: rate + '%', carts });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 cron.schedule('*/5 * * * *', async () => {
@@ -223,7 +270,9 @@ cron.schedule('*/5 * * * *', async () => {
         if (sent) await doc.ref.update({ email_24hr_sent: true });
       }
     }
-  } catch (e) { console.error('Cron error:', e.message); }
+  } catch (e) {
+    console.error('Cron error:', e.message);
+  }
 });
 
 const PORT = process.env.PORT || 3000;
