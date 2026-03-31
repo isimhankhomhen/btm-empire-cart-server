@@ -1,0 +1,16 @@
+{
+  "name": "btm-empire-cart-server",
+  "version": "1.0.0",
+  "description": "BTM Empire Abandoned Cart Recovery Server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "firebase-admin": "^11.11.0",
+    "node-cron": "^3.0.3",
+    "axios": "^1.6.0",
+    "cors": "^2.8.5"
+  }
+}
